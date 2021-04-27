@@ -128,6 +128,16 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
      * 
      * @param setter
      *            Fluent interface for constructor arguments
+     *
+     *
+     * HystrixInvocationHandler的invoke()方法最终的调用是这个构造,传入的是一个Setter
+     * 是基于SynchronousMethodHandler来进行调用的,调用代码如下所示
+     * HystrixInvocationHandler.this.dispatch.get(method).invoke(args);
+     * 1. HystrixInvocationHandler.this.dispatch 获取到的是一个Map<Method, MethodHandler> dispatch的Map
+     * 2. method类型是一个  FeignClient#methodName  这种类型,如 ServiceAClient#add
+     * 3. 获取到的是一个具体的SynchronousMethodHandler,执行其invoke()方法
+     *
+     *
      */
     protected HystrixCommand(Setter setter) {
         // use 'null' to specify use the default

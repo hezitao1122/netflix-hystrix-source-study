@@ -153,11 +153,28 @@ import java.util.concurrent.atomic.AtomicReference;
         defaultNameCache.put(cls, name);
         return name;
     }
-
+    /** description: 相当于Command初始化的时候,通过Setter传入进来的一些参数 , 主要传入类型是Setter
+     * @param group  groupKey 相当于每个服务共用的一个key , 一般一类服务使用同一线程池
+     * @param key commandKey 每个command都拥有一个key , 一个command相当于一个方法
+     * @param threadPoolKey 属于哪个线程池的key
+     * @param circuitBreaker 短路的配置信息  传入的是null
+     * @param threadPool 线程池的配置  传入的是null
+     * @param commandPropertiesDefaults 服务的默认配置
+     * @param threadPoolPropertiesDefaults 线程的默认配置
+     * @param metrics 传入的是null
+     * @param fallbackSemaphore 信号量回调信息配置  传入的是null
+     * @param executionSemaphore 信号量的配置信息 传入的是null
+     * @param propertiesStrategy 传入的是null
+     * @param executionHook 传入的是null
+     * @Author: zeryts
+     * @email: hezitao@agree.com
+     * @Date: 2021/4/27 10:44
+     */
     protected AbstractCommand(HystrixCommandGroupKey group, HystrixCommandKey key, HystrixThreadPoolKey threadPoolKey, HystrixCircuitBreaker circuitBreaker, HystrixThreadPool threadPool,
             HystrixCommandProperties.Setter commandPropertiesDefaults, HystrixThreadPoolProperties.Setter threadPoolPropertiesDefaults,
             HystrixCommandMetrics metrics, TryableSemaphore fallbackSemaphore, TryableSemaphore executionSemaphore,
             HystrixPropertiesStrategy propertiesStrategy, HystrixCommandExecutionHook executionHook) {
+
 
         this.commandGroup = initGroupKey(group);
         this.commandKey = initCommandKey(key, getClass());
