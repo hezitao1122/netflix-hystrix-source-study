@@ -383,6 +383,8 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
      *   1. queue()方法, 是用来异步执行command业务逻辑的,他会将command扔到一个Future执行,不会等待线程执行完成,
      *   2. future对象去获取command对象的执行结果
      *   3. delegate这个Future对象,是不具备因为一些异常原因,终端这个线程执行能力的,比如超时\异常,没法在异常情况下终止future线程的执行,所以又进行了一层的包装
+     *      1). toObservable()方法肯定是没执行具体的逻辑的
+     *      2). toBlocking() 方法才是正式执行toObservable()方法准备的东西
      *   4. Future<R> f这个对象就是包装后的Future对象
      *   5. f.cancel() 方法支持把 delegate 对象对应的thread线程interrupt掉执行的任务终止
      *   6. f.isDone() 方法,就是通过future判断对应的那个线程,是否完成了command的执行

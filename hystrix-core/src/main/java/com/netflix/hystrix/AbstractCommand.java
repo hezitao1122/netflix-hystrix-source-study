@@ -401,9 +401,37 @@ import java.util.concurrent.atomic.AtomicReference;
      *          这里代表用户代码已经执行过了
      * 5. Action0 unsubscribeCommandCleanup
      * 6. Func0 applyHystrixSemantics
+     * command真正执行的方法
+     *  1. executionHook.onStart()  里面啥都没干
+     *   executionHook - 构造command的时候传递过来的, 包含一个executionHookDeprecationWrapper,是AbstractCommand的内部类
+     *  2. if (circuitBreaker.attemptExecution())
+     *    circuitBreaker - 熔断器
+     *    1). 尝试去执行,判断是否熔断.如果熔断了就不让你执行command
      * 7. Func1 wrapWithAllOnNextHooks
      * 8. Action0 fireOnCompletedHook
-     * 9. Observable.defer(new Func0<Observable<R>>()
+     * 9. Func0<Observable<R>>()
+     *  1). 第一步 :
+     *      if (!commandState.compareAndSet(CommandState.NOT_STARTED, CommandState.OBSERVABLE_CHAIN_CREATED))
+     *      刚开始做一个command状态的判断,如果说command状态不是NOT_STARTED,他就认为说你已经执行过一次command了,不会让你重复执行一个command
+     *      如果说command状态是NOT_STARTED , 则会将状态设置为 OBSERVABLE_CHAIN_CREATED
+     *      所以,Func0.call()就是command的入口,Observable.toBlocking()方法出发的
+     *  2). 第二步:
+     *      if (properties.requestLogEnabled().get())
+     *      尝试去处理日志,默认不处理hystrix日志的
+     *  3). 第三步:
+     *      if (requestCacheEnabled) 检查是否启用了请求缓存,配置项是 requestCache.enabled
+     *      默认情况下是不起用的
+     *      如果启用的情况,会基于applyHystrixSemantics 和 wrapWithAllOnNextHooks创建
+     *      一个HystrixObservable的东西
+     *  4). 第四步:
+     *  afterCache
+     *      .doOnTerminate(terminateCommandCleanup)
+     *      .doOnUnsubscribe(unsubscribeCommandCleanup)
+     *      .doOnCompleted(fireOnCompletedHook);
+     *      基于上面(4,5,6,7,8)所构造的五个对象进行构造 Observable
+     * 10. Observable.toBlocking()之后,就会触发 9 中的 Func0.call()方法执行 ,
+     *      结果这个call方法中啥也没干,就是再次创建了一个hystrixObservable对象,把之前的五个对象塞进去
+     *      所以判断,真正去执行command的方法,估计是在applyHystrixSemantics中去触发的
      */
     public Observable<R> toObservable() {
         /**
@@ -567,8 +595,21 @@ import java.util.concurrent.atomic.AtomicReference;
             }
         });
     }
-
+    /** description: command真正执行的方法
+     * 1. executionHook.onStart()  里面啥都没干
+     *  executionHook - 构造command的时候传递过来的, 包含一个executionHookDeprecationWrapper,是AbstractCommand的内部类
+     * 2. if (circuitBreaker.attemptExecution())
+     *  circuitBreaker - 熔断器
+     *  1). 尝试去执行,判断是否熔断.如果熔断了就不让你执行command
+     *
+     * @param _cmd 是一个具体执行的HystrixCommand
+     * @return: rx.Observable<R>
+     * @Author: zeryts
+     * @email: hezitao@agree.com
+     * @Date: 2021/4/27 22:19
+     */
     private Observable<R> applyHystrixSemantics(final AbstractCommand<R> _cmd) {
+
         // mark that we're starting execution on the ExecutionHook
         // if this hook throws an exception, then a fast-fail occurs with no fallback.  No state is left inconsistent
         executionHook.onStart(_cmd);
