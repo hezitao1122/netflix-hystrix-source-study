@@ -378,6 +378,18 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
      *             via {@code Future.get()} in {@link ExecutionException#getCause()} if invalid arguments or state were used representing a user failure, not a system failure
      * @throws IllegalStateException
      *             if invoked more than once
+     *
+     *
+     *   1. queue()方法, 是用来异步执行command业务逻辑的,他会将command扔到一个Future执行,不会等待线程执行完成,
+     *   2. future对象去获取command对象的执行结果
+     *   3. delegate这个Future对象,是不具备因为一些异常原因,终端这个线程执行能力的,比如超时\异常,没法在异常情况下终止future线程的执行,所以又进行了一层的包装
+     *   4. Future<R> f这个对象就是包装后的Future对象
+     *   5. f.cancel() 方法支持把 delegate 对象对应的thread线程interrupt掉执行的任务终止
+     *   6. f.isDone() 方法,就是通过future判断对应的那个线程,是否完成了command的执行
+     *   7. f.get() 方法.\,这里会阻塞,尝试去通过future获取对应的thread对command执行后返回的结果
+     *      7.1 如果这行代码执行完毕了,就可以获取到thread执行的command的执行结果
+     *      7.2 如果报错了,判断是在command里面报错了(COMMAND_EXCEPTION)还是超时(TIMEOUT)
+     *   8. 返回future
      */
     public Future<R> queue() {
         /*
@@ -386,7 +398,10 @@ public abstract class HystrixCommand<R> extends AbstractCommand<R> implements Hy
          * thus, to comply with the contract of Future, we must wrap around it.
          */
         final Future<R> delegate = toObservable().toBlocking().toFuture();
-    	
+
+        /**
+         * 这是又一层的包装对象
+         */
         final Future<R> f = new Future<R>() {
 
             @Override
