@@ -377,8 +377,38 @@ import java.util.concurrent.atomic.AtomicReference;
      *             via {@code Observer#onError} if invalid arguments or state were used representing a user failure, not a system failure
      * @throws IllegalStateException
      *             if invoked more than once
+     *
+     *
+     * hystrix几乎所有的核心逻辑，请求缓存、线程池、超时检测、异常检测、熔断触发，都几乎在这个方法里作为入口
+     * 1.注解
+     *  1) Used for asynchronous execution of command with a callback by subscribing to the {@link Observable}.
+     *      这句话的意思是,会将command使用异步的方式来执行,扔到一个线程池里异步去泡,会拿到一个Observable对象,
+     *      拿到这个对象后,如果要查看一些状态和结果,需要去订阅这个Observable对象,提供一个回调接口,订阅Observable对象
+     *  2) This lazily starts execution of the command once the {@link Observable} is subscribed to
+     *      这句话的意思是说,如果你获取了一个Observable对象之后,此时command其实没有立即执行,仅仅是封装到Observable对象里面,什么都没干
+     *      如果订阅了Observable对象,提供了回调接口,才会触发Observable内部关联的command会去执行,根据command执行的结果会去回调你提供的接口
+     *  3) An eager {@link Observable} can be obtained from {@link #observe()}.
+     *      如果你希望一旦获取到Observable对象,就立即执行内部的command,那么就不要调用toObservable方法,要调用observable方法
+     * 2. _cmd 其实就是HystrixInvovationHandler里面创建的HystrixCommand的匿名内部类
+     * 3. 注解 doOnCompleted handler already did all of the SUCCESS work
+     *      如果你的command执行成功之后,会由doOnCompleted()来处理
+     *    doOnError handler already did all of the FAILURE/TIMEOUT/REJECTION/BAD_REQUEST work
+     *      如果你的command执行过程中,出现了一些异常的情况,如 FAILURE(异常报错) / TIMEOUT(超时) / REJECTION(线程池满,被拒绝) / BAD_REQUEST(错误的请求)
+     * 4. Action0 terminateCommandCleanup terminate终止 cleanup收尾
+     *     1). 如果状态是OBSERVABLE_CHAIN_CREATED,就将状态设置为TERMINAL,同时执行handleCommandEnd(false)方法
+     *          这里代表用户代码从来没运行过
+     *     2). 如果状态是USER_CODE_EXECUTED , 就将状态设置为TERMINAL,同时执行handleCommandEnd(true)方法
+     *          这里代表用户代码已经执行过了
+     * 5. Action0 unsubscribeCommandCleanup
+     * 6. Func0 applyHystrixSemantics
+     * 7. Func1 wrapWithAllOnNextHooks
+     * 8. Action0 fireOnCompletedHook
+     * 9. Observable.defer(new Func0<Observable<R>>()
      */
     public Observable<R> toObservable() {
+        /**
+         * HystrixInvovationHandler里面创建的HystrixCommand的匿名内部类
+         */
         final AbstractCommand<R> _cmd = this;
 
         //doOnCompleted handler already did all of the SUCCESS work
@@ -388,8 +418,14 @@ import java.util.concurrent.atomic.AtomicReference;
             @Override
             public void call() {
                 if (_cmd.commandState.compareAndSet(CommandState.OBSERVABLE_CHAIN_CREATED, CommandState.TERMINAL)) {
+                    /**
+                     * 这里代表用户代码没执行过
+                     */
                     handleCommandEnd(false); //user code never ran
                 } else if (_cmd.commandState.compareAndSet(CommandState.USER_CODE_EXECUTED, CommandState.TERMINAL)) {
+                    /**
+                     * 这里代表用户代码已经执行过
+                     */
                     handleCommandEnd(true); //user code did run
                 }
             }
