@@ -601,6 +601,38 @@ import java.util.concurrent.atomic.AtomicReference;
      * 2. if (circuitBreaker.attemptExecution())
      *  circuitBreaker - 熔断器
      *  1). 尝试去执行,判断是否熔断.如果熔断了就不让你执行command
+     * 3. 判断隔离模式
+     *  1). 如果不是为信号量,则什么逻辑都没有
+     *  2). 如果不是为信号量,则什么逻辑都没有
+     * 4. 构造 Action0
+     *  1). 这个call()里面的方法,代表发生了异常发生的回调
+     * 5. 构造 Action1
+     *   1). 默认情况executionSemaphore.tryAcquire()就是true,代表可以执行的
+     *   2). executionResult设置了一个开始执行的执行时间
+     *   3). executeCommandAndObserve(_cmd)  观察命令的执行结果, 获取一个userObservable对象
+     *
+     *       1. executeCommandWithSpecifiedIsolation(_cmd)  返回一个Observable<R>
+     *      2. 施加了一个HystrixObservableTimeoutOperator  用于观察timeout的组件
+     *      3. 获取执行的execution
+     *          1). 如果隔离策略是线程池模式,构造一个叫execution的Observable
+     *          2). 获取执行的状态
+     *              (1). 如果说要执行command了,结果command的state不是OBSERVABLE_CHAIN_CREATED,那么就会说在一个错误的state之下执行command,报错
+     *              (2). 如果状态正常,state状态为USER_CODE_EXECUTED
+     *              (3). threadPoolKey默认跟groupKey是一样的,一个服务对应一个线程池
+     *          3). 获取userObservable
+     *              (1). 线程池在执行的时候,状态一定为 NOT_USING_THREAD
+     *              (2). endCurrentThreadExecutingCommand = Hystrix.startCurrentThreadExecutingCommand(getCommandKey())
+     *                  传入一个commandKey
+     *                  压入到一个栈里面去
+     *              (3). 三个on方法,更改下状态
+     *              (4). getUserExecutionObservable
+     *                  (1). getExecutionObservable()方法中中有一个Func0对象,
+     *                  里面的call()方法就执行了我们自己写的run()方法,并返回一个userObservable
+     *                  (2). 往userObservable中放入ExecutionHookApplication 和 DeprecatedOnRunHookApplication
+     *              (5). 将userObservable返回
+     *                  如果要让一个Observable去执行的话,必须对这个Observable进行订阅,在这里的话,其实他内部先会搞一个subscribe订阅器出来,
+     *                  然后用这个subscriber去订阅userObservable，然后才能触发userObservable的执行
+     *          4). 执行具体的HystrixInvocationHandle里面的HystrixCommand.run()方法,具体执行是SynchronousMethodHandler
      *
      * @param _cmd 是一个具体执行的HystrixCommand
      * @return: rx.Observable<R>
@@ -616,6 +648,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
         /* determine if we're allowed to execute */
         if (circuitBreaker.attemptExecution()) {
+            /**
+             * 1). 判断是否为信号量模式,默认是基于线程池
+             * 2). 如果不是为信号量,则什么逻辑都没有
+             */
             final TryableSemaphore executionSemaphore = getExecutionSemaphore();
             final AtomicBoolean semaphoreHasBeenReleased = new AtomicBoolean(false);
             final Action0 singleSemaphoreRelease = new Action0() {
@@ -626,14 +662,21 @@ import java.util.concurrent.atomic.AtomicReference;
                     }
                 }
             };
-
+            /**
+             * 1). 这个call()里面的方法,代表发生了异常发生的回调
+             * 2). 这个commandKey发生了异常发生的回调
+             */
             final Action1<Throwable> markExceptionThrown = new Action1<Throwable>() {
                 @Override
                 public void call(Throwable t) {
                     eventNotifier.markEvent(HystrixEventType.EXCEPTION_THROWN, commandKey);
                 }
             };
-
+            /**
+             * 1). 默认情况executionSemaphore.tryAcquire()就是true,代表可以执行的
+             * 2). executionResult设置了一个开始执行的执行时间
+             * 3). executeCommandAndObserve(_cmd)  观察命令的执行结果
+             */
             if (executionSemaphore.tryAcquire()) {
                 try {
                     /* used to track userThreadExecutionTime */
@@ -659,6 +702,29 @@ import java.util.concurrent.atomic.AtomicReference;
      * This decorates "Hystrix" functionality around the run() Observable.
      *
      * @return R
+     *
+     * 1. executeCommandWithSpecifiedIsolation(_cmd)  返回一个Observable<R>
+     * 2. 施加了一个HystrixObservableTimeoutOperator  用于观察timeout的组件
+     * 3. 获取执行的execution
+     *  1). 如果隔离策略是线程池模式,构造一个叫execution的Observable
+     *  2). 获取执行的状态
+     *      (1). 如果说要执行command了,结果command的state不是OBSERVABLE_CHAIN_CREATED,那么就会说在一个错误的state之下执行command,报错
+     *      (2). 如果状态正常,state状态为USER_CODE_EXECUTED
+     *      (3). threadPoolKey默认跟groupKey是一样的,一个服务对应一个线程池
+     *  3). 获取userObservable
+     *      (1). 线程池在执行的时候,状态一定为 NOT_USING_THREAD
+     *      (2). endCurrentThreadExecutingCommand = Hystrix.startCurrentThreadExecutingCommand(getCommandKey())
+     *          传入一个commandKey
+     *          压入到一个栈里面去
+     *      (3). 三个on方法,更改下状态
+     *      (4). getUserExecutionObservable
+     *          (1). getExecutionObservable()方法中中有一个Func0对象,
+     *           里面的call()方法就执行了我们自己写的run()方法,并返回一个userObservable
+     *          (2). 往userObservable中放入ExecutionHookApplication 和 DeprecatedOnRunHookApplication
+     *       (5). 将userObservable返回
+     *          如果要让一个Observable去执行的话,必须对这个Observable进行订阅,在这里的话,其实他内部先会搞一个subscribe订阅器出来,
+     *          然后用这个subscriber去订阅userObservable，然后才能触发userObservable的执行
+     *  4). 执行具体的HystrixInvocationHandle里面的HystrixCommand.run()方法,具体执行是SynchronousMethodHandler
      */
     private Observable<R> executeCommandAndObserve(final AbstractCommand<R> _cmd) {
         final HystrixRequestContext currentRequestContext = HystrixRequestContext.getContextForCurrentThread();
@@ -725,7 +791,30 @@ import java.util.concurrent.atomic.AtomicReference;
                 setRequestContextIfNeeded(currentRequestContext);
             }
         };
-
+        /**
+         * 1. executeCommandWithSpecifiedIsolation(_cmd)  返回一个Observable<R>
+         * 2. 施加了一个HystrixObservableTimeoutOperator  用于观察timeout的组件
+         * 3. 获取执行的execution
+         *  1). 如果隔离策略是线程池模式,构造一个叫execution的Observable
+         *  2). 获取执行的状态
+         *      (1). 如果说要执行command了,结果command的state不是OBSERVABLE_CHAIN_CREATED,那么就会说在一个错误的state之下执行command,报错
+         *      (2). 如果状态正常,state状态为USER_CODE_EXECUTED
+         *      (3). threadPoolKey默认跟groupKey是一样的,一个服务对应一个线程池
+         *  3). 获取userObservable
+         *      (1). 线程池在执行的时候,状态一定为 NOT_USING_THREAD
+         *      (2). endCurrentThreadExecutingCommand = Hystrix.startCurrentThreadExecutingCommand(getCommandKey())
+         *          传入一个commandKey
+         *          压入到一个栈里面去
+         *      (3). 三个on方法,更改下状态
+         *      (4). getUserExecutionObservable
+         *          (1). getExecutionObservable()方法中中有一个Func0对象,
+         *           里面的call()方法就执行了我们自己写的run()方法,并返回一个userObservable
+         *          (2). 往userObservable中放入ExecutionHookApplication 和 DeprecatedOnRunHookApplication
+         *       (5). 将userObservable返回
+         *          如果要让一个Observable去执行的话,必须对这个Observable进行订阅,在这里的话,其实他内部先会搞一个subscribe订阅器出来,
+         *          然后用这个subscriber去订阅userObservable，然后才能触发userObservable的执行
+         *  4). 执行具体的HystrixInvocationHandle里面的HystrixCommand.run()方法,具体执行是SynchronousMethodHandler
+         */
         Observable<R> execution;
         if (properties.executionTimeoutEnabled().get()) {
             execution = executeCommandWithSpecifiedIsolation(_cmd)
@@ -739,13 +828,38 @@ import java.util.concurrent.atomic.AtomicReference;
                 .onErrorResumeNext(handleFallback)
                 .doOnEach(setRequestContext);
     }
-
+    /**
+     * 1. 如果隔离策略是线程池模式,构造一个叫execution的Observable
+     * 2. 获取执行的状态
+     *   1). 如果说要执行command了,结果command的state不是OBSERVABLE_CHAIN_CREATED,那么就会说在一个错误的state之下执行command,报错
+     *   2). 如果状态正常,state状态为USER_CODE_EXECUTED
+     *   3). threadPoolKey默认跟groupKey是一样的,一个服务对应一个线程池
+     * 3. 获取userObservable
+     *  1). 线程池在执行的时候,状态一定为 NOT_USING_THREAD
+     *  2). endCurrentThreadExecutingCommand = Hystrix.startCurrentThreadExecutingCommand(getCommandKey())
+     *      传入一个commandKey
+     *       压入到一个栈里面去
+     *  3). 三个on方法,更改下状态
+     *  4). getUserExecutionObservable
+     *      (1). getExecutionObservable()方法中中有一个Func0对象,
+     *           里面的call()方法就执行了我们自己写的run()方法,并返回一个userObservable
+     *      (2). 往userObservable中放入ExecutionHookApplication 和 DeprecatedOnRunHookApplication
+     *  5). 将userObservable返回
+     *      如果要让一个Observable去执行的话,必须对这个Observable进行订阅,在这里的话,其实他内部先会搞一个subscribe订阅器出来,
+     *      然后用这个subscriber去订阅userObservable，然后才能触发userObservable的执行
+     */
     private Observable<R> executeCommandWithSpecifiedIsolation(final AbstractCommand<R> _cmd) {
         if (properties.executionIsolationStrategy().get() == ExecutionIsolationStrategy.THREAD) {
             // mark that we are executing in a thread (even if we end up being rejected we still were a THREAD execution and not SEMAPHORE)
             return Observable.defer(new Func0<Observable<R>>() {
                 @Override
                 public Observable<R> call() {
+                    /**
+                     * 获取执行的状态
+                     * 1). 如果说要执行command了,结果command的state不是OBSERVABLE_CHAIN_CREATED,那么就会说在一个错误的state之下执行command,报错
+                     * 2). 如果状态正常,state状态为USER_CODE_EXECUTED
+                     * 3). threadPoolKey默认跟groupKey是一样的,一个服务对应一个线程池
+                     */
                     executionResult = executionResult.setExecutionOccurred();
                     if (!commandState.compareAndSet(CommandState.OBSERVABLE_CHAIN_CREATED, CommandState.USER_CODE_EXECUTED)) {
                         return Observable.error(new IllegalStateException("execution attempted while in state : " + commandState.get().name()));
@@ -758,6 +872,20 @@ import java.util.concurrent.atomic.AtomicReference;
                         // and not increment any of the counters below or other such logic
                         return Observable.error(new RuntimeException("timed out before executing run()"));
                     }
+                    /**
+                     * 1). 线程池在执行的时候,状态一定为 NOT_USING_THREAD
+                     * 2). endCurrentThreadExecutingCommand = Hystrix.startCurrentThreadExecutingCommand(getCommandKey())
+                     *      传入一个commandKey
+                     *      压入到一个栈里面去
+                     * 3). 三个on方法,更改下状态
+                     * 4). getUserExecutionObservable
+                     *  (1). getExecutionObservable()方法中中有一个Func0对象,
+                     *      里面的call()方法就执行了我们自己写的run()方法,并返回一个userObservable
+                     *  (2). 往userObservable中放入ExecutionHookApplication 和 DeprecatedOnRunHookApplication
+                     * 5). 将userObservable返回
+                     *      如果要让一个Observable去执行的话,必须对这个Observable进行订阅,在这里的话,其实他内部先会搞一个subscribe订阅器出来,
+                     *      然后用这个subscriber去订阅userObservable，然后才能触发userObservable的执行
+                     */
                     if (threadState.compareAndSet(ThreadState.NOT_USING_THREAD, ThreadState.STARTED)) {
                         //we have not been unsubscribed, so should proceed
                         HystrixCounters.incrementGlobalConcurrentThreads();
@@ -814,6 +942,10 @@ import java.util.concurrent.atomic.AtomicReference;
                 @Override
                 public Observable<R> call() {
                     executionResult = executionResult.setExecutionOccurred();
+                    /**
+                     * 1). 将commandState的状态从OBSERVABLE_CHAIN_CREATED修改为USER_CODE_EXECUTED
+                     * 2).
+                     */
                     if (!commandState.compareAndSet(CommandState.OBSERVABLE_CHAIN_CREATED, CommandState.USER_CODE_EXECUTED)) {
                         return Observable.error(new IllegalStateException("execution attempted while in state : " + commandState.get().name()));
                     }
@@ -1346,6 +1478,10 @@ import java.util.concurrent.atomic.AtomicReference;
      * Get the TryableSemaphore this HystrixCommand should use for execution if not running in a separate thread.
      * 
      * @return TryableSemaphore
+     *
+     * 1. 判断是否为信号量模式,默认是基于线程池
+     * 2. 如果不是为信号量,则什么逻辑都没有
+     *
      */
     protected TryableSemaphore getExecutionSemaphore() {
         if (properties.executionIsolationStrategy().get() == ExecutionIsolationStrategy.SEMAPHORE) {
