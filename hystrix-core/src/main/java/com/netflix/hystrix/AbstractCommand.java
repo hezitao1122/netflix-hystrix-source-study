@@ -425,8 +425,8 @@ import java.util.concurrent.atomic.AtomicReference;
      *    doOnError handler already did all of the FAILURE/TIMEOUT/REJECTION/BAD_REQUEST work
      *      如果你的command执行过程中,出现了一些异常的情况,如 FAILURE(异常报错) / TIMEOUT(超时) / REJECTION(线程池满,被拒绝) / BAD_REQUEST(错误的请求)
      * 4. Action0 terminateCommandCleanup terminate终止 cleanup收尾
-     *     1). 如果状态是OBSERVABLE_CHAIN_CREATED,就将状态设置为TERMINAL,同时执行handleCommandEnd(false)方法
-     *          这里代表用户代码从来没运行过
+     *     1). 执行成功的回调,如果状态是OBSERVABLE_CHAIN_CREATED,就将状态设置为TERMINAL,同时执行handleCommandEnd(false)方法
+     *          然后调用handleCommandEnd方法,将监听的线程给清理掉
      *     2). 如果状态是USER_CODE_EXECUTED , 就将状态设置为TERMINAL,同时执行handleCommandEnd(true)方法
      *          这里代表用户代码已经执行过了
      * 5. Action0 unsubscribeCommandCleanup
@@ -506,6 +506,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
             @Override
             public void call() {
+                /**
+                 * 这里代表执行成功,将状态改为TERMINAL
+                 */
                 if (_cmd.commandState.compareAndSet(CommandState.OBSERVABLE_CHAIN_CREATED, CommandState.TERMINAL)) {
                     /**
                      * 这里代表用户代码没执行过
@@ -671,9 +674,29 @@ import java.util.concurrent.atomic.AtomicReference;
      *   1). 默认情况executionSemaphore.tryAcquire()就是true,代表可以执行的
      *   2). executionResult设置了一个开始执行的执行时间
      *   3). executeCommandAndObserve(_cmd)  观察命令的执行结果, 获取一个userObservable对象
-     *
-     *       1. executeCommandWithSpecifiedIsolation(_cmd)  返回一个Observable<R>
+     *      1. executeCommandWithSpecifiedIsolation(_cmd)  返回一个Observable<R>
      *      2. 施加了一个HystrixObservableTimeoutOperator  用于观察timeout的组件
+                1.这里定义timerout的超时监听逻辑
+     *          1). originalCommand.isCommandTimedOut.compareAndSet(TimedOutStatus.NOT_EXECUTED, TimedOutStatus.TIMED_OUT)
+     *              1. 这里代表已经超时了,将状态从NOT_EXECUTED设置为TIMEOUT,并且抛出一个HystrixTimeoutException异常
+     *              2. 用于处理超时时间的Observable,其实就是监听我们command执行是否超时的一个监听器,如果command执行超时,那么此时就会回调TimerListener里面的方法
+     *              3. 如果在超时时间的时候执行完,执行状态不会变,会成为 COMPLETED , 然后把监听任务clear()掉
+     *          2). Reference<TimerListener> tl = HystrixTimer.getInstance().addTimerListener(listener)
+     *              (1). HystrixTimer.getInstance() 这里明显是拿到了一个HystrixTimer的东西,这是一个单例的HystrixTimer
+     *                  如果超时了,就回调那个监听器
+     *              (2). addTimerListener(listener) 将上面所创建的  listener加到这个HystrixTimer的监听器里面
+     *                  1. startThreadIfNeeded() 初始化一个AtomicReference<ScheduledExecutor> ,并调用initialize()方法
+     *                  2. initialize()
+     *                      1). 获取timerCoreSize的线程池大小
+     *                      2). 创建timer线程的工厂,timer线程的名字叫 HystrixTimer-0 , 并设置为守护线程
+     *                      3). 创建了一个用来进行调度的ScheduledThreadPoolExecutor线程池,默认大小是4
+     *              (3). Runnable r
+     *                  1. 创建一个线程,调用TimerListener的tick()方法
+     *              (4). ScheduledFuture<?> f = executor.get().getThreadPool().
+     *                  scheduleAtFixedRate(r, listener.getIntervalTimeInMilliseconds(), listener.getIntervalTimeInMilliseconds(), TimeUnit.MILLISECONDS);
+     *                  1. 通过2)-(2)-2-2)中创建的timerPool来调度创建的Runnable r线程,定时调度
+     *                  2. intervalTimeInMilliseconds 配置项是 hystrix.command.serviceA#sayHello(Long,String).execution.isolation.thread.timeoutInMilliseconds = 1000ms
+     *                      按照默认设置,每隔1000ms就会跑一次这个任务,根据你设置的超时时间来进行调度
      *      3. 获取执行的execution
      *          1). 如果隔离策略是线程池模式,构造一个叫execution的Observable
      *          2). 获取执行的状态
@@ -1438,6 +1461,30 @@ import java.util.concurrent.atomic.AtomicReference;
         return false;
     }
 
+    /**
+     * 1.这里定义timerout的超时监听逻辑
+     *      1). originalCommand.isCommandTimedOut.compareAndSet(TimedOutStatus.NOT_EXECUTED, TimedOutStatus.TIMED_OUT)
+     *          这里代表已经超时了,将状态从NOT_EXECUTED设置为TIMEOUT,并且抛出一个HystrixTimeoutException异常
+     *          用于处理超时时间的Observable,其实就是监听我们command执行是否超时的一个监听器,
+     *          如果command执行超时,那么此时就会回调TimerListener里面的方法
+     *      2). Reference<TimerListener> tl = HystrixTimer.getInstance().addTimerListener(listener)
+     *          (1). HystrixTimer.getInstance() 这里明显是拿到了一个HystrixTimer的东西,这是一个单例的HystrixTimer
+     *              如果超时了,就回调那个监听器
+     *          (2). addTimerListener(listener) 将上面所创建的  listener加到这个HystrixTimer的监听器里面
+     *              1. startThreadIfNeeded() 初始化一个AtomicReference<ScheduledExecutor> ,并调用initialize()方法
+     *              2. initialize()
+     *                  1). 获取timerCoreSize的线程池大小
+     *                  2). 创建timer线程的工厂,timer线程的名字叫 HystrixTimer-0 , 并设置为守护线程
+     *                  3). 创建了一个用来进行调度的ScheduledThreadPoolExecutor线程池,默认大小是4
+     *          (3). Runnable r
+     *              1. 创建一个线程,调用TimerListener的tick()方法
+     *          (4). ScheduledFuture<?> f = executor.get().getThreadPool().
+     *              scheduleAtFixedRate(r, listener.getIntervalTimeInMilliseconds(), listener.getIntervalTimeInMilliseconds(), TimeUnit.MILLISECONDS);
+     *              1. 通过2)-(2)-2-2)中创建的timerPool来调度创建的Runnable r线程,定时调度
+     *              2. intervalTimeInMilliseconds 配置项是 hystrix.command.serviceA#sayHello(Long,String).execution.isolation.thread.timeoutInMilliseconds = 1000ms
+     *                  按照默认设置,每隔1000ms就会跑一次这个任务,根据你设置的超时时间来进行调度
+     *
+     */
     private static class HystrixObservableTimeoutOperator<R> implements Operator<R, R> {
 
         final AbstractCommand<R> originalCommand;
@@ -1487,7 +1534,7 @@ import java.util.concurrent.atomic.AtomicReference;
                     return originalCommand.properties.executionTimeoutInMilliseconds().get();
                 }
             };
-
+            // 监听超时的监听器  监听是用一个单例的HystrixTimer()
             final Reference<TimerListener> tl = HystrixTimer.getInstance().addTimerListener(listener);
 
             // set externally so execute/queue can see this

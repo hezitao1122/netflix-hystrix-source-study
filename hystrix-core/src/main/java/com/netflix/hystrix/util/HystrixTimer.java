@@ -102,8 +102,13 @@ public class HystrixTimer {
                 }
             }
         };
-
-        ScheduledFuture<?> f = executor.get().getThreadPool().scheduleAtFixedRate(r, listener.getIntervalTimeInMilliseconds(), listener.getIntervalTimeInMilliseconds(), TimeUnit.MILLISECONDS);
+        /**
+         * timerPool线程池定时调度这个线程
+         */
+        ScheduledFuture<?> f = executor.get().getThreadPool().scheduleAtFixedRate(r,
+                listener.getIntervalTimeInMilliseconds(),
+                listener.getIntervalTimeInMilliseconds(),
+                TimeUnit.MILLISECONDS);
         return new TimerReference(listener, f);
     }
 
@@ -150,8 +155,13 @@ public class HystrixTimer {
         public void initialize() {
 
             HystrixPropertiesStrategy propertiesStrategy = HystrixPlugins.getInstance().getPropertiesStrategy();
+            /**
+             * 这里代表的是timer线程池的大小
+             */
             int coreSize = propertiesStrategy.getTimerThreadPoolProperties().getCorePoolSize().get();
-
+            /**
+             * 创建timer线程的工厂,timer线程的名字叫 HystrixTimer-0
+             */
             ThreadFactory threadFactory = null;
             if (!PlatformSpecific.isAppEngineStandardEnvironment()) {
                 threadFactory = new ThreadFactory() {
@@ -168,7 +178,9 @@ public class HystrixTimer {
             } else {
                 threadFactory = PlatformSpecific.getAppEngineThreadFactory();
             }
-
+            /**
+             * 创建了一个用来进行调度的ScheduledThreadPoolExecutor线程池,默认大小是4
+             */
             executor = new ScheduledThreadPoolExecutor(coreSize, threadFactory);
             initialized = true;
         }
