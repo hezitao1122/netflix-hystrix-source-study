@@ -289,10 +289,42 @@ import java.util.concurrent.atomic.AtomicReference;
             return fromConstructor;
         }
     }
-
+    /** description: 初始化熔断器
+     * 1). HystrixCircuitBreaker.Factory.getInstance(commandKey, groupKey, properties, metrics)
+     *      通过commandKey来获取一个熔断器
+     *      (1). HystrixCircuitBreaker previouslyCached = circuitBreakersByCommand.get(commandKey.name())
+     *          这行代码代表一个command拥有一个熔断器,所以commandKey和HystrixCircuitBreaker是一对一关系,实现是HystrixCircuitBreakerImpl
+     *      (2). new HystrixCircuitBreakerImpl(key, group, properties, metrics)) 初始化和订阅
+     *          1. onNext(HealthCounts hc)方法,每次有新的统计信息,就会来回调这个onNext()方法,就会对这个统计信息进行各种检查
+     *              包括我们设置的参数,对熔断器进行各种检查
+     *          2.  if (hc.getTotalRequests() < properties.circuitBreakerRequestVolumeThreshold().get())
+     *              在最近一个时间窗口内(默认是10s) totalRequests(总请求数量) 如果小于circuitBreakerRequestVolumeThreshold , 则什么都不干,即不会触发熔断
+     *          3. 否则进入下一步尝试
+     *              1). if (hc.getErrorPercentage() < properties.circuitBreakerErrorThresholdPercentage().get())
+     *                  如果说最近一个时间窗口(默认是10s) , 异常请求所占的比例,小于circuitBreakerErrorThresholdPercentage这个参数(默认是50%)
+     *                  则代表不进行熔断,则什么也不干
+     *               2). 否则,则是异常请求大于50% , 此时就会再进行判断
+     *                    if (status.compareAndSet(Status.CLOSED, Status.OPEN)) {
+     *                              circuitOpened.set(System.currentTimeMillis());
+     *                    }
+     *                    如果熔断器又是关闭的,就会将熔断器打开
+     *
+     *
+     * @param enabled 是否启用熔断器
+     * @param fromConstructor
+     * @param groupKey
+     * @param commandKey
+     * @param properties
+     * @param metrics
+     * @return: com.netflix.hystrix.HystrixCircuitBreaker
+     * @Author: zeryts
+     * @email: hezitao@agree.com
+     * @Date: 2021/4/29 17:51
+     */
     private static HystrixCircuitBreaker initCircuitBreaker(boolean enabled, HystrixCircuitBreaker fromConstructor,
                                                             HystrixCommandGroupKey groupKey, HystrixCommandKey commandKey,
                                                             HystrixCommandProperties properties, HystrixCommandMetrics metrics) {
+
         if (enabled) {
             if (fromConstructor == null) {
                 // get the default implementation of HystrixCircuitBreaker
@@ -553,6 +585,7 @@ import java.util.concurrent.atomic.AtomicReference;
      *      所以判断,真正去执行command的方法,估计是在applyHystrixSemantics中去触发的
      */
     public Observable<R> toObservable() {
+
         /**
          * HystrixInvovationHandler里面创建的HystrixCommand的匿名内部类
          */
