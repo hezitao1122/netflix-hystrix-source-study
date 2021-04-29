@@ -439,6 +439,37 @@ import java.util.concurrent.atomic.AtomicReference;
      *    1). 尝试去执行,判断是否熔断.如果熔断了就不让你执行command
      * 7. Func1 wrapWithAllOnNextHooks
      * 8. Action0 fireOnCompletedHook
+     *  1). threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
+     *      还有的话,如果线程池没满,那么久会去通过线程池进行调度
+     *  2). touchConfig(); 默认情况下啥都不干,只有在你设置线程池动态增长的情况下才干活
+     *  3). getScheduler()
+     *      (1). 这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+     *      (2). 类型为HystrixContextScheduler的worker,里面有判断线程池已满的逻辑
+     *          线程池满了之后,会报一个RejectedExecutionException
+     *          if (threadPool != null)
+     *              if (!threadPool.isQueueSpaceAvailable())
+     *                  throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+     *          return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
+     *      (3) isQueueSpaceAvailable()逻辑为
+     *      isQueueSpaceAvailable() {
+     *             if (queueSize <= 0) {
+     *                 return true;
+     *             } else {
+     *                 return threadPool.getQueue().size() < properties.queueSizeRejectionThreshold().get();
+     *             }
+     *  4). new ThreadPoolScheduler(threadPool, shouldInterruptThread) 的createWorker方法会创建一个ThreadPoolWorker
+     *      schedule()方法有进行command任务调度的方法
+     *  5).    HystrixThreadPoolDefault的getScheduler()方法,
+     *      这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+     *             类型为HystrixContextSchedulerWorker的worker,里面有判断线程池已满的逻辑
+     *              线程池满了之后,会报一个RejectedExecutionException
+     *              if (threadPool != null) {
+     *                 if (!threadPool.isQueueSpaceAvailable()) {
+     *                     throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+     *                 }
+     *              }
+     *              return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
+
      * 9. Func0<Observable<R>>()
      *  1). 第一步 :
      *      if (!commandState.compareAndSet(CommandState.NOT_STARTED, CommandState.OBSERVABLE_CHAIN_CREATED))
@@ -962,8 +993,36 @@ import java.util.concurrent.atomic.AtomicReference;
                     //if it was terminal, then other cleanup handled it
                 }
                 /**
-                 * threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
+                 * 1). threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
                  * 还有的话,如果线程池没满,那么久会去通过线程池进行调度
+                 * 2). touchConfig(); 默认情况下啥都不干,只有在你设置线程池动态增长的情况下才干活
+                 * 3). getScheduler()
+                 *      (1). 这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+                 *      (2). 类型为HystrixContextScheduler的worker,里面有判断线程池已满的逻辑
+                 *          线程池满了之后,会报一个RejectedExecutionException
+                 *          if (threadPool != null)
+                 *              if (!threadPool.isQueueSpaceAvailable())
+                 *                  throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+                 *          return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
+                 *      (3) isQueueSpaceAvailable()逻辑为
+                 *      isQueueSpaceAvailable() {
+                 *             if (queueSize <= 0) {
+                 *                 return true;
+                 *             } else {
+                 *                 return threadPool.getQueue().size() < properties.queueSizeRejectionThreshold().get();
+                 *             }
+                 *  4). new ThreadPoolScheduler(threadPool, shouldInterruptThread) 的createWorker方法会创建一个ThreadPoolWorker
+                 *      schedule()方法有进行command任务调度的方法
+                 *  5).    HystrixThreadPoolDefault的getScheduler()方法,
+                 *      这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+                 *             类型为HystrixContextSchedulerWorker的worker,里面有判断线程池已满的逻辑
+                 *              线程池满了之后,会报一个RejectedExecutionException
+                 *              if (threadPool != null) {
+                 *                 if (!threadPool.isQueueSpaceAvailable()) {
+                 *                     throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+                 *                 }
+                 *              }
+                 *              return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
                  */
             }).subscribeOn(threadPool.getScheduler(new Func0<Boolean>() {
                 @Override

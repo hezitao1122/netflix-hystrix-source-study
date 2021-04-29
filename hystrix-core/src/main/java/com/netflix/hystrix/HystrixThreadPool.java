@@ -208,8 +208,22 @@ public interface HystrixThreadPool {
 
         @Override
         public Scheduler getScheduler(Func0<Boolean> shouldInterruptThread) {
+            /**
+             * 默认情况下啥都不干,只有在你设置线程池动态增长的情况下才干活
+             */
+
             touchConfig();
-            //这里传入了一个threadPool,把自己传进去
+            /**
+             这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+            类型为HystrixContextSchedulerWorker的worker,里面有判断线程池已满的逻辑
+             线程池满了之后,会报一个RejectedExecutionException
+             if (threadPool != null) {
+                if (!threadPool.isQueueSpaceAvailable()) {
+                    throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+                }
+             }
+             return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
+            */
             return new HystrixContextScheduler(HystrixPlugins.getInstance().getConcurrencyStrategy(), this, shouldInterruptThread);
         }
 

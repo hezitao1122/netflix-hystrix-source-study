@@ -154,9 +154,18 @@ public class HystrixContextScheduler extends Scheduler {
         public boolean isUnsubscribed() {
             return subscription.isUnsubscribed();
         }
-
+        /** description: 将任务提交到线程池里的核心逻辑
+         * 1). 如果提交线程的时候,线程池满了,默认是会走abortPolicy
+         *
+         * @param action
+         * @return: rx.Subscription
+         * @Author: zeryts
+         * @email: hezitao@agree.com
+         * @Date: 2021/4/29 12:02
+         */
         @Override
         public Subscription schedule(final Action0 action) {
+
             if (subscription.isUnsubscribed()) {
                 // don't schedule, we are unsubscribed
                 return Subscriptions.unsubscribed();
