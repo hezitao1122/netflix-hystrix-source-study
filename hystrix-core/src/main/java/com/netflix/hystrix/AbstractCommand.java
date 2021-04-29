@@ -308,7 +308,12 @@ import java.util.concurrent.atomic.AtomicReference;
      *                              circuitOpened.set(System.currentTimeMillis());
      *                    }
      *                    如果熔断器又是关闭的,就会将熔断器打开
-     *
+     *      (3). 熔断器回调与是否打开熔断器判断
+     *          1.if (properties.circuitBreakerForceClosed().get()) circuitOpened 没打开的情况下是-1 , 如果打开了,则会是一个时间戳
+     *          2. 判断熔断器是否打开了,
+     *              1). circuitOpened 代表打开短路器的当前时间戳
+     *              2). 如果circuitOpenTime(上次打开熔断器) + sleepWindowTime(配置项circuitBreaker.sleepWindowInMilliseconds,默认是5s)
+     *              3). 如果当前时间小于熔断器打开时间+指定时间,返回false
      *
      * @param enabled 是否启用熔断器
      * @param fromConstructor

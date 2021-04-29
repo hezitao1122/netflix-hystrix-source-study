@@ -233,7 +233,13 @@ public interface HystrixCircuitBreaker {
             }
             return circuitOpened.get() >= 0;
         }
-
+        /**
+         * 1.if (properties.circuitBreakerForceClosed().get()) circuitOpened 没打开的情况下是-1 , 如果打开了,则会是一个时间戳
+         * 2. 判断熔断器是否打开了,
+         *  1). circuitOpened 代表打开短路器的当前时间戳
+         *  2). 如果circuitOpenTime(上次打开熔断器) + sleepWindowTime(配置项circuitBreaker.sleepWindowInMilliseconds,默认是5s)
+         *  3). 如果当前时间小于熔断器打开时间+指定时间,返回false
+         */
         @Override
         public boolean allowRequest() {
             if (properties.circuitBreakerForceOpen().get()) {
@@ -254,6 +260,12 @@ public interface HystrixCircuitBreaker {
         }
 
         private boolean isAfterSleepWindow() {
+            /**
+             * 1). circuitOpened 代表打开短路器的当前时间戳
+             * 2). 如果circuitOpenTime(上次打开熔断器) + sleepWindowTime(配置项circuitBreaker.sleepWindowInMilliseconds,默认是5s)
+             * 3). 如果当前时间小于熔断器打开时间+指定时间,返回false
+             */
+
             final long circuitOpenTime = circuitOpened.get();
             final long currentTime = System.currentTimeMillis();
             final long sleepWindowTime = properties.circuitBreakerSleepWindowInMilliseconds().get();
