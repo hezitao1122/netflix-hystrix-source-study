@@ -447,7 +447,7 @@ import java.util.concurrent.atomic.AtomicReference;
      *
      *
      * hystrix几乎所有的核心逻辑，请求缓存、线程池、超时检测、异常检测、熔断触发，都几乎在这个方法里作为入口
-     * 1.注解
+     * 一.注解
      *  1) Used for asynchronous execution of command with a callback by subscribing to the {@link Observable}.
      *      这句话的意思是,会将command使用异步的方式来执行,扔到一个线程池里异步去泡,会拿到一个Observable对象,
      *      拿到这个对象后,如果要查看一些状态和结果,需要去订阅这个Observable对象,提供一个回调接口,订阅Observable对象
@@ -456,20 +456,19 @@ import java.util.concurrent.atomic.AtomicReference;
      *      如果订阅了Observable对象,提供了回调接口,才会触发Observable内部关联的command会去执行,根据command执行的结果会去回调你提供的接口
      *  3) An eager {@link Observable} can be obtained from {@link #observe()}.
      *      如果你希望一旦获取到Observable对象,就立即执行内部的command,那么就不要调用toObservable方法,要调用observable方法
-     * 2. _cmd 其实就是HystrixInvovationHandler里面创建的HystrixCommand的匿名内部类
-     * 3. 注解 doOnCompleted handler already did all of the SUCCESS work
-     *      如果你的command执行成功之后,会由doOnCompleted()来处理
-     *    doOnError handler already did all of the FAILURE/TIMEOUT/REJECTION/BAD_REQUEST work
-     *      如果你的command执行过程中,出现了一些异常的情况,如 FAILURE(异常报错) / TIMEOUT(超时) / REJECTION(线程池满,被拒绝) / BAD_REQUEST(错误的请求)
-     * 4. Action0 terminateCommandCleanup terminate终止 cleanup收尾
+     * 二. _cmd 其实就是HystrixInvovationHandler里面创建的HystrixCommand的匿名内部类
+     * 三. 注解 doOnCompleted handler already did all of the SUCCESS work
+     *      1. 如果你的command执行成功之后,会由doOnCompleted()来处理
+     *      2. doOnError handler already did all of the FAILURE/TIMEOUT/REJECTION/BAD_REQUEST work
+     *      3. 如果你的command执行过程中,出现了一些异常的情况,如 FAILURE(异常报错) / TIMEOUT(超时) / REJECTION(线程池满,被拒绝) / BAD_REQUEST(错误的请求)
+     * 四. Action0 terminateCommandCleanup terminate终止 cleanup收尾
      *     1). 执行成功的回调,如果状态是OBSERVABLE_CHAIN_CREATED,就将状态设置为TERMINAL,同时执行handleCommandEnd(false)方法
      *          然后调用handleCommandEnd方法,将监听的线程给清理掉
      *     2). 如果状态是USER_CODE_EXECUTED , 就将状态设置为TERMINAL,同时执行handleCommandEnd(true)方法
      *          这里代表用户代码已经执行过了
-     * 5. Action0 unsubscribeCommandCleanup
-     * 6. Func0 applyHystrixSemantics
-     *   command真正执行的方法
-     *   1. executionHook.onStart()  里面啥都没干
+     * 五. Action0 unsubscribeCommandCleanup
+     * 六. Func0 applyHystrixSemantics command真正执行的方法
+     *  1. executionHook.onStart()  里面啥都没干
      *      executionHook - 构造command的时候传递过来的, 包含一个executionHookDeprecationWrapper,是AbstractCommand的内部类
      *  2. if (circuitBreaker.attemptExecution())
      *      circuitBreaker - 熔断器
@@ -545,30 +544,30 @@ import java.util.concurrent.atomic.AtomicReference;
      *          2). HystrixTimeoutException
      *          3). HystrixBadRequestException
      *          4). else
-     * 7. Func1 wrapWithAllOnNextHooks
-     * 8. Action0 fireOnCompletedHook
-     *  1). threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
-     *      还有的话,如果线程池没满,那么久会去通过线程池进行调度
-     *  2). touchConfig(); 默认情况下啥都不干,只有在你设置线程池动态增长的情况下才干活
-     *  3). getScheduler()
-     *      (1). 这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
-     *      (2). 类型为HystrixContextScheduler的worker,里面有判断线程池已满的逻辑
-     *          线程池满了之后,会报一个RejectedExecutionException
-     *          if (threadPool != null)
-     *              if (!threadPool.isQueueSpaceAvailable())
-     *                  throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
-     *          return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
-     *      (3) isQueueSpaceAvailable()逻辑为
-     *      isQueueSpaceAvailable() {
-     *             if (queueSize <= 0) {
-     *                 return true;
-     *             } else {
-     *                 return threadPool.getQueue().size() < properties.queueSizeRejectionThreshold().get();
-     *             }
-     *  4). new ThreadPoolScheduler(threadPool, shouldInterruptThread) 的createWorker方法会创建一个ThreadPoolWorker
-     *      schedule()方法有进行command任务调度的方法
-     *  5).    HystrixThreadPoolDefault的getScheduler()方法,
-     *      这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+     * 七. Func1 wrapWithAllOnNextHooks
+     * 八. Action0 fireOnCompletedHook
+     *      1. threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
+     *          还有的话,如果线程池没满,那么久会去通过线程池进行调度
+     *      2. touchConfig(); 默认情况下啥都不干,只有在你设置线程池动态增长的情况下才干活
+     *      3. getScheduler()
+     *          1). 这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
+     *          2). 类型为HystrixContextScheduler的worker,里面有判断线程池已满的逻辑
+     *              线程池满了之后,会报一个RejectedExecutionException
+     *              if (threadPool != null)
+     *                  if (!threadPool.isQueueSpaceAvailable())
+     *                      throw new RejectedExecutionException("Rejected command because thread-pool queueSize is at rejection threshold.");
+     *              return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
+     *          3) isQueueSpaceAvailable()逻辑为
+     *          isQueueSpaceAvailable() {
+     *              if (queueSize <= 0) {
+     *                  return true;
+     *              } else {
+     *                  return threadPool.getQueue().size() < properties.queueSizeRejectionThreshold().get();
+     *              }
+     *      4. new ThreadPoolScheduler(threadPool, shouldInterruptThread) 的createWorker方法会创建一个ThreadPoolWorker
+     *          schedule()方法有进行command任务调度的方法
+     *      5. HystrixThreadPoolDefault的getScheduler()方法,
+     *          这里传入了一个threadPool,把自己传进去 , 这里会创建一个scheduler的一个worker,
      *             类型为HystrixContextSchedulerWorker的worker,里面有判断线程池已满的逻辑
      *              线程池满了之后,会报一个RejectedExecutionException
      *              if (threadPool != null) {
@@ -577,29 +576,28 @@ import java.util.concurrent.atomic.AtomicReference;
      *                 }
      *              }
      *              return worker.schedule(new HystrixContexSchedulerAction(concurrencyStrategy, action), delayTime, unit);
-
-     * 9. Func0<Observable<R>>()
-     *  1). 第一步 :
-     *      if (!commandState.compareAndSet(CommandState.NOT_STARTED, CommandState.OBSERVABLE_CHAIN_CREATED))
-     *      刚开始做一个command状态的判断,如果说command状态不是NOT_STARTED,他就认为说你已经执行过一次command了,不会让你重复执行一个command
-     *      如果说command状态是NOT_STARTED , 则会将状态设置为 OBSERVABLE_CHAIN_CREATED
-     *      所以,Func0.call()就是command的入口,Observable.toBlocking()方法出发的
-     *  2). 第二步:
-     *      if (properties.requestLogEnabled().get())
-     *      尝试去处理日志,默认不处理hystrix日志的
-     *  3). 第三步:
-     *      if (requestCacheEnabled) 检查是否启用了请求缓存,配置项是 requestCache.enabled
-     *      默认情况下是不起用的
-     *      如果启用的情况,会基于applyHystrixSemantics 和 wrapWithAllOnNextHooks创建
-     *      一个HystrixObservable的东西
-     *  4). 第四步:
-     *  afterCache
-     *      .doOnTerminate(terminateCommandCleanup)
-     *      .doOnUnsubscribe(unsubscribeCommandCleanup)
-     *      .doOnCompleted(fireOnCompletedHook);
-     *      基于上面(4,5,6,7,8)所构造的五个对象进行构造 Observable
-     * 10. Observable.toBlocking()之后,就会触发 9 中的 Func0.call()方法执行 ,
-     *      结果这个call方法中啥也没干,就是再次创建了一个hystrixObservable对象,把之前的五个对象塞进去
+     * 九. Func0<Observable<R>>()
+     *      1. 第一步 :
+     *          if (!commandState.compareAndSet(CommandState.NOT_STARTED, CommandState.OBSERVABLE_CHAIN_CREATED))
+     *          1). 刚开始做一个command状态的判断,如果说command状态不是NOT_STARTED,他就认为说你已经执行过一次command了,不会让你重复执行一个command
+     *          2). 如果说command状态是NOT_STARTED , 则会将状态设置为 OBSERVABLE_CHAIN_CREATED
+     *              所以,Func0.call()就是command的入口,Observable.toBlocking()方法出发的
+     *      2. 第二步:
+     *          if (properties.requestLogEnabled().get())
+     *          尝试去处理日志,默认不处理hystrix日志的
+     *      3. 第三步:
+     *          if (requestCacheEnabled) 检查是否启用了请求缓存,配置项是 requestCache.enabled
+     *          默认情况下是不起用的
+     *          如果启用的情况,会基于applyHystrixSemantics 和 wrapWithAllOnNextHooks创建
+     *          一个HystrixObservable的东西
+     *      4. 第四步:
+     *      afterCache
+     *          .doOnTerminate(terminateCommandCleanup)
+     *          .doOnUnsubscribe(unsubscribeCommandCleanup)
+     *          .doOnCompleted(fireOnCompletedHook);
+     *          基于上面(4,5,6,7,8)所构造的五个对象进行构造 Observable
+     * 十. Observable.toBlocking()之后,就会触发 9 中的 Func0.call()方法执行 ,
+     *      1. 结果这个call方法中啥也没干,就是再次创建了一个hystrixObservable对象,把之前的五个对象塞进去
      *      所以判断,真正去执行command的方法,估计是在applyHystrixSemantics中去触发的
      */
     public Observable<R> toObservable() {
