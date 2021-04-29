@@ -59,7 +59,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /* package */abstract class AbstractCommand<R> implements HystrixInvokableInfo<R>, HystrixObservable<R> {
     private static final Logger logger = LoggerFactory.getLogger(AbstractCommand.class);
+    /**
+     * 断路器
+     */
     protected final HystrixCircuitBreaker circuitBreaker;
+    /**
+     * 线程池
+     */
     protected final HystrixThreadPool threadPool;
     protected final HystrixThreadPoolKey threadPoolKey;
     protected final HystrixCommandProperties properties;
@@ -154,6 +160,30 @@ import java.util.concurrent.atomic.AtomicReference;
         return name;
     }
     /** description: 相当于Command初始化的时候,通过Setter传入进来的一些参数 , 主要传入类型是Setter
+     *
+     * HystrixInvocationHandler的invoke()方法会调用线程池初始化HystrixCommand的构造方法,HystrixCommand会调用父类的AbstractCommand构造
+     * 1. initThreadPool() 线程池的初始化
+     *    1). 从一个Map里,根据服务名去获取一个threadPool
+     *    2). 如果获取不到,就会新建一个threadPool,然后放到一个Map中去,并返回
+     *    3). 构造的threadPool是HystrixThreadPoolDefault类型
+     *    4). 获取到以下的配置,并给出默认配置项
+     *      (1). hystrix.threadpool.ServiceA.allowMaximumSizeToDivergeFromCoreSize = false  是否支持和线程池动态扩容,默认不可动态线程
+     *      (2). hystrix.threadpool.ServiceA.keepAliveTimeMinutes = 1
+     *      (3). hystrix.threadpool.ServiceA.maximumSize = 10
+     *      (4). hystrix.threadpool.ServiceA.coreSize = 10
+     *      (5). hystrix.threadpool.ServiceA.maxQueueSize = -1  默认是-1  所以会创建SynchronousQueue,是不支持排队的
+     *      (6). hystrix.threadpool.ServiceA.queueSizeRejectionThreshold = 5
+     *      (7). hystrix.threadpool.ServiceA.metrics.rollingStats.numBuckets = 10
+     *      (8). hystrix.threadpool.ServiceA.metrics.rollingStats.timeInMilliseconds = 10000
+     *      (9). queueSize = properties.maxQueueSize().get() 配置等待队列的最大值
+     *    5). concurrencyStrategy.getThreadPool(threadPoolKey, properties) 这段代码就是构建threadPool的方法
+     *      (1). getBlockingQueue(int maxQueueSize)有一个if (maxQueueSize <= 0) return new SynchronousQueue<Runnable>();
+     *           判断,如果使用SynchronousQueue是没有排队的,一个请求过来就会创建一个新的线程,如果没有线程可用,则会去创建更多的线程
+     *      (2). 如果不是-1 则会创建一个LinkedBlockingQueue<Runnable>(maxQueueSize)
+     *          此时会这样,优先使用10个线程来处理请求,如果线程池满了,此时就会在队列里排队,最多可用排10个请求,
+     *          如果10个请求都满了,线程池里的10个线程池也满了,还在繁忙中,此时maxsimumsize是10,无法增加新线程,此时就会reject掉
+     *    6). new ThreadPoolExecutor(dynamicCoreSize, dynamicCoreSize, keepAliveTime, TimeUnit.MINUTES, workQueue, threadFactory)
+     *          这里创建的是默认的线程池配置
      * @param group  groupKey 相当于每个服务共用的一个key , 一般一类服务使用同一线程池
      * @param key commandKey 每个command都拥有一个key , 一个command相当于一个方法
      * @param threadPoolKey 属于哪个线程池的key
@@ -931,6 +961,10 @@ import java.util.concurrent.atomic.AtomicReference;
                     }
                     //if it was terminal, then other cleanup handled it
                 }
+                /**
+                 * threadPool.getScheduler的核心逻辑,就是判断线程池是否已满,如果以满,则会报一个reject的异常
+                 * 还有的话,如果线程池没满,那么久会去通过线程池进行调度
+                 */
             }).subscribeOn(threadPool.getScheduler(new Func0<Boolean>() {
                 @Override
                 public Boolean call() {

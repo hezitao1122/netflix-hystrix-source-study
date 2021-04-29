@@ -90,7 +90,15 @@ public abstract class HystrixConcurrencyStrategy {
             return new ThreadPoolExecutor(dynamicCoreSize, dynamicMaximumSize, keepAliveTime.get(), unit, workQueue, threadFactory);
         }
     }
-
+    /** description: 初始化threadPool的方法
+     *
+     * @param threadPoolKey 线程池的key
+     * @param threadPoolProperties 线程池的配置信息
+     * @return: java.util.concurrent.ThreadPoolExecutor
+     * @Author: zeryts
+     * @email: hezitao@agree.com
+     * @Date: 2021/4/29 10:32
+     */
     public ThreadPoolExecutor getThreadPool(final HystrixThreadPoolKey threadPoolKey, HystrixThreadPoolProperties threadPoolProperties) {
         final ThreadFactory threadFactory = getThreadFactory(threadPoolKey);
 

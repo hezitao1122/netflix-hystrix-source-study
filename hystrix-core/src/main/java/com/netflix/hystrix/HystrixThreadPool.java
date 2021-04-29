@@ -163,7 +163,13 @@ public interface HystrixThreadPool {
         private static final Logger logger = LoggerFactory.getLogger(HystrixThreadPoolDefault.class);
 
         private final HystrixThreadPoolProperties properties;
+        /**
+         * 用来排队的一个queue
+         */
         private final BlockingQueue<Runnable> queue;
+        /**
+         * JDK的线程池
+         */
         private final ThreadPoolExecutor threadPool;
         private final HystrixThreadPoolMetrics metrics;
         private final int queueSize;
@@ -203,6 +209,7 @@ public interface HystrixThreadPool {
         @Override
         public Scheduler getScheduler(Func0<Boolean> shouldInterruptThread) {
             touchConfig();
+            //这里传入了一个threadPool,把自己传进去
             return new HystrixContextScheduler(HystrixPlugins.getInstance().getConcurrencyStrategy(), this, shouldInterruptThread);
         }
 
